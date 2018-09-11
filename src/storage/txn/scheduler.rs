@@ -89,7 +89,7 @@ impl Display for Msg {
             Msg::RawCmd { ref cmd, .. } => write!(f, "RawCmd {:?}", cmd),
             Msg::ReadFinished { ref task, .. } => write!(f, "ReadFinished [cid={}]", task.cid),
             Msg::WriteFinished { ref task, .. } => write!(f, "WriteFinished [cid={}]", task.cid),
-            Msg::FinishedWithErr { cid, .. } => write!(f, "WriteFinished [cid={}]", cid),
+            Msg::FinishedWithErr { cid, .. } => write!(f, "FinishedWithErr [cid={}]", cid),
         }
     }
 }
