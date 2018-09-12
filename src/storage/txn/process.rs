@@ -293,15 +293,14 @@ impl Task {
                     let sched = scheduler.clone();
                     // The callback to receive async results of write prepare from the storage engine.
                     let engine_cb = Box::new(move |(_, result)| {
-                        let success = handle_schedule(
+                        if handle_schedule(
                             sched,
                             Msg::WriteFinished {
                                 task: self,
                                 pr,
                                 result,
                             },
-                        );
-                        if success {
+                        ) {
                             KV_COMMAND_KEYWRITE_HISTOGRAM_VEC
                                 .with_label_values(&[cmd_tag])
                                 .observe(rows as f64);
@@ -624,7 +623,7 @@ fn handle_schedule(scheduler: worker::Scheduler<Msg>, msg: Msg) -> bool {
             false
         }
         Err(e) => {
-            panic!("schedule WriteFinished msg failed, err:{:?}", e);
+            panic!("schedule msg failed, err:{:?}", e);
         }
     }
 }
@@ -685,7 +684,9 @@ impl<E: Engine> ThreadContext for SchedContext<E> {
 }
 
 pub struct Channels<E: Engine> {
+    // The scheduler of the `Schedulder`.
     scheduler: Option<worker::Scheduler<Msg>>,
+    // The scheduler of a thread pool.
     pool: Option<threadpool::Scheduler<SchedContext<E>>>,
 }
 
