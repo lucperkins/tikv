@@ -46,7 +46,7 @@ use util::worker::{self, Runnable};
 use super::super::metrics::*;
 use super::latch::{Latches, Lock};
 use super::process::{
-    execute_callback, Channels, ProcessResult, SchedContext, SchedContextFactory, Task,
+    execute_callback, Executor, ProcessResult, SchedContext, SchedContextFactory, Task,
 };
 use super::Error;
 
@@ -216,14 +216,14 @@ impl<E: Engine> Scheduler<E> {
         entity
     }
 
-    pub fn fetch_channels(&self, priority: CommandPri) -> Channels<E> {
+    pub fn fetch_executor(&self, priority: CommandPri) -> Executor<E> {
         let pool = match priority {
             CommandPri::Low | CommandPri::Normal => &self.worker_pool,
             CommandPri::High => &self.high_priority_pool,
         };
         let pool_scheduler = pool.scheduler();
         let scheduler = self.scheduler.clone();
-        Channels::new(scheduler, pool_scheduler)
+        Executor::new(scheduler, pool_scheduler)
     }
 
     /// Event handler for new command.
@@ -293,12 +293,12 @@ impl<E: Engine> Scheduler<E> {
     fn get_snapshot(&mut self, cid: u64) {
         let mut task = self.dequeue_task(cid);
         let tag = task.tag;
-        let ctx = task.cmd.as_ref().unwrap().get_context().clone();
-        let channels = self.fetch_channels(task.cmd.as_ref().unwrap().priority());
+        let ctx = task.context().clone();
+        let executor = self.fetch_executor(task.priority());
 
         task.start();
         let cb = box move |(cb_ctx, snapshot)| {
-            task.on_snapshot_finished(cb_ctx, snapshot, channels);
+            task.on_snapshot_finished(cb_ctx, snapshot, executor);
         };
         if let Err(e) = self.engine.async_snapshot(&ctx, cb) {
             error!("engine async_snapshot failed, err: {:?}", e);
