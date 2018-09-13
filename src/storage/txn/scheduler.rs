@@ -60,17 +60,20 @@ pub enum Msg {
         cb: StorageCb,
     },
     ReadFinished {
-        task: Task,
+        cid: u64,
         pr: ProcessResult,
+        tag: &'static str,
     },
     WriteFinished {
-        task: Task,
+        cid: u64,
         pr: ProcessResult,
         result: EngineResult<()>,
+        tag: &'static str,
     },
     FinishedWithErr {
         cid: u64,
         err: Error,
+        tag: &'static str,
     },
 }
 
@@ -87,8 +90,8 @@ impl Display for Msg {
         match *self {
             Msg::Quit => write!(f, "Quit"),
             Msg::RawCmd { ref cmd, .. } => write!(f, "RawCmd {:?}", cmd),
-            Msg::ReadFinished { ref task, .. } => write!(f, "ReadFinished [cid={}]", task.cid),
-            Msg::WriteFinished { ref task, .. } => write!(f, "WriteFinished [cid={}]", task.cid),
+            Msg::ReadFinished { cid, .. } => write!(f, "ReadFinished [cid={}]", cid),
+            Msg::WriteFinished { cid, .. } => write!(f, "WriteFinished [cid={}]", cid),
             Msg::FinishedWithErr { cid, .. } => write!(f, "FinishedWithErr [cid={}]", cid),
         }
     }
@@ -335,31 +338,37 @@ impl<E: Engine> Scheduler<E> {
     ///
     /// If a next command is present, continues to execute; otherwise, delivers the result to the
     /// callback.
-    fn on_read_finished(&mut self, task: Task, pr: ProcessResult) {
-        debug!("read command(cid={}) finished", task.cid);
+    fn on_read_finished(&mut self, cid: u64, pr: ProcessResult, tag: &str) {
+        debug!("read command(cid={}) finished", cid);
         SCHED_STAGE_COUNTER_VEC
-            .with_label_values(&[task.tag, "read_finish"])
+            .with_label_values(&[tag, "read_finish"])
             .inc();
-        let entity = self.dequeue_schedule_entity(task.cid);
+        let entity = self.dequeue_schedule_entity(cid);
         if let ProcessResult::NextCommand { cmd } = pr {
             SCHED_STAGE_COUNTER_VEC
-                .with_label_values(&[task.tag, "next_cmd"])
+                .with_label_values(&[tag, "next_cmd"])
                 .inc();
             self.schedule_command(cmd, entity.cb);
         } else {
             execute_callback(entity.cb, pr);
         }
 
-        self.release_lock(&entity.lock, task.cid);
+        self.release_lock(&entity.lock, cid);
     }
 
     /// Event handler for the success of write.
-    fn on_write_finished(&mut self, task: Task, pr: ProcessResult, result: EngineResult<()>) {
+    fn on_write_finished(
+        &mut self,
+        cid: u64,
+        pr: ProcessResult,
+        result: EngineResult<()>,
+        tag: &str,
+    ) {
         SCHED_STAGE_COUNTER_VEC
-            .with_label_values(&[task.tag, "write_finish"])
+            .with_label_values(&[tag, "write_finish"])
             .inc();
-        debug!("write finished for command, cid={}", task.cid);
-        let entity = self.dequeue_schedule_entity(task.cid);
+        debug!("write finished for command, cid={}", cid);
+        let entity = self.dequeue_schedule_entity(cid);
         let pr = match result {
             Ok(()) => pr,
             Err(e) => ProcessResult::Failed {
@@ -368,14 +377,14 @@ impl<E: Engine> Scheduler<E> {
         };
         if let ProcessResult::NextCommand { cmd } = pr {
             SCHED_STAGE_COUNTER_VEC
-                .with_label_values(&[task.tag, "next_cmd"])
+                .with_label_values(&[tag, "next_cmd"])
                 .inc();
             self.schedule_command(cmd, entity.cb);
         } else {
             execute_callback(entity.cb, pr);
         }
 
-        self.release_lock(&entity.lock, task.cid);
+        self.release_lock(&entity.lock, cid);
     }
 
     /// Generates the lock for a command.
@@ -416,9 +425,14 @@ impl<E: Engine> Runnable<Msg> for Scheduler<E> {
                     return;
                 }
                 Msg::RawCmd { cmd, cb } => self.on_receive_new_cmd(cmd, cb),
-                Msg::ReadFinished { task, pr } => self.on_read_finished(task, pr),
-                Msg::WriteFinished { task, pr, result } => self.on_write_finished(task, pr, result),
-                Msg::FinishedWithErr { cid, err } => self.finish_with_err(cid, err),
+                Msg::ReadFinished { cid, tag, pr } => self.on_read_finished(cid, pr, tag),
+                Msg::WriteFinished {
+                    cid,
+                    tag,
+                    pr,
+                    result,
+                } => self.on_write_finished(cid, pr, result, tag),
+                Msg::FinishedWithErr { cid, err, .. } => self.finish_with_err(cid, err),
             }
         }
     }

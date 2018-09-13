@@ -193,6 +193,7 @@ impl Task {
                     Msg::FinishedWithErr {
                         cid: self.cid,
                         err: Error::from(err),
+                        tag: self.tag,
                     },
                 );
             }
@@ -256,6 +257,8 @@ impl Task {
     ) -> Statistics {
         fail_point!("txn_before_process_read");
         debug!("process read cmd(cid={}) in worker pool", self.cid);
+        let tag = self.tag;
+        let cid = self.cid;
         let mut statistics = Statistics::default();
         let pr = match process_read_impl(
             sched_ctx,
@@ -268,7 +271,7 @@ impl Task {
         };
         notify_scheduler(
             executor.take_scheduler(),
-            Msg::ReadFinished { task: self, pr },
+            Msg::ReadFinished { cid, pr, tag },
         );
         statistics
     }
@@ -295,9 +298,10 @@ impl Task {
                     .inc();
                 if to_be_write.is_empty() {
                     Msg::WriteFinished {
-                        task: self,
+                        cid,
                         pr,
                         result: Ok(()),
+                        tag,
                     }
                 } else {
                     let sched = scheduler.clone();
@@ -306,9 +310,10 @@ impl Task {
                         if notify_scheduler(
                             sched,
                             Msg::WriteFinished {
-                                task: self,
+                                cid,
                                 pr,
                                 result,
+                                tag,
                             },
                         ) {
                             KV_COMMAND_KEYWRITE_HISTOGRAM_VEC
@@ -319,7 +324,8 @@ impl Task {
 
                     if let Err(e) = sched_ctx.engine.async_write(&ctx, to_be_write, engine_cb) {
                         error!("engine async_write failed, cid={}, err={:?}", cid, e);
-                        Msg::FinishedWithErr { cid, err: e.into() }
+                        let err = e.into();
+                        Msg::FinishedWithErr { cid, err, tag }
                     } else {
                         return statistics;
                     }
@@ -332,7 +338,7 @@ impl Task {
                 SCHED_STAGE_COUNTER_VEC
                     .with_label_values(&[tag, "prepare_write_err"])
                     .inc();
-                Msg::FinishedWithErr { cid, err }
+                Msg::FinishedWithErr { cid, err, tag }
             }
         };
         notify_scheduler(scheduler, msg);
