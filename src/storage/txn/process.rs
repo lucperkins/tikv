@@ -184,10 +184,11 @@ impl Task {
                 self.process_by_worker(cb_ctx, snapshot, executor);
             }
             Err(err) => {
-                error!("get snapshot failed for cid={}, error {:?}", self.cid, err);
                 SCHED_STAGE_COUNTER_VEC
                     .with_label_values(&[self.tag, "snapshot_err"])
                     .inc();
+
+                error!("get snapshot failed for cid={}, error {:?}", self.cid, err);
                 notify_scheduler(
                     executor.take_scheduler(),
                     Msg::FinishedWithErr {
@@ -323,6 +324,10 @@ impl Task {
                     });
 
                     if let Err(e) = sched_ctx.engine.async_write(&ctx, to_be_write, engine_cb) {
+                        SCHED_STAGE_COUNTER_VEC
+                            .with_label_values(&[tag, "async_write_err"])
+                            .inc();
+
                         error!("engine async_write failed, cid={}, err={:?}", cid, e);
                         let err = e.into();
                         Msg::FinishedWithErr { cid, err, tag }
@@ -334,10 +339,11 @@ impl Task {
             // Write prepare failure typically means conflicting transactions are detected. Delivers the
             // error to the callback, and releases the latches.
             Err(err) => {
-                debug!("write command(cid={}) failed at prewrite.", cid);
                 SCHED_STAGE_COUNTER_VEC
                     .with_label_values(&[tag, "prepare_write_err"])
                     .inc();
+
+                debug!("write command(cid={}) failed at prewrite.", cid);
                 Msg::FinishedWithErr { cid, err, tag }
             }
         };

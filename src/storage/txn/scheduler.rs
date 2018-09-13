@@ -304,12 +304,12 @@ impl<E: Engine> Scheduler<E> {
             task.on_snapshot_finished(cb_ctx, snapshot, executor);
         };
         if let Err(e) = self.engine.async_snapshot(&ctx, cb) {
-            error!("engine async_snapshot failed, err: {:?}", e);
-            self.finish_with_err(cid, e.into());
-
             SCHED_STAGE_COUNTER_VEC
                 .with_label_values(&[tag, "async_snapshot_err"])
                 .inc();
+
+            error!("engine async_snapshot failed, err: {:?}", e);
+            self.finish_with_err(cid, e.into());
         } else {
             SCHED_STAGE_COUNTER_VEC
                 .with_label_values(&[tag, "snapshot"])
@@ -339,10 +339,11 @@ impl<E: Engine> Scheduler<E> {
     /// If a next command is present, continues to execute; otherwise, delivers the result to the
     /// callback.
     fn on_read_finished(&mut self, cid: u64, pr: ProcessResult, tag: &str) {
-        debug!("read command(cid={}) finished", cid);
         SCHED_STAGE_COUNTER_VEC
             .with_label_values(&[tag, "read_finish"])
             .inc();
+
+        debug!("read command(cid={}) finished", cid);
         let entity = self.dequeue_schedule_entity(cid);
         if let ProcessResult::NextCommand { cmd } = pr {
             SCHED_STAGE_COUNTER_VEC
@@ -367,6 +368,7 @@ impl<E: Engine> Scheduler<E> {
         SCHED_STAGE_COUNTER_VEC
             .with_label_values(&[tag, "write_finish"])
             .inc();
+
         debug!("write finished for command, cid={}", cid);
         let entity = self.dequeue_schedule_entity(cid);
         let pr = match result {
