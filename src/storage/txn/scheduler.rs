@@ -144,7 +144,7 @@ pub struct Scheduler<E: Engine> {
     engine: E,
 
     // cid -> Task
-    pending_task: HashMap<u64, Task>,
+    pending_tasks: HashMap<u64, Task>,
 
     // cid -> SchedEntity
     schedule_entities: HashMap<u64, SchedEntity>,
@@ -185,7 +185,7 @@ impl<E: Engine> Scheduler<E> {
         Scheduler {
             engine,
             // TODO: GC these two maps.
-            pending_task: Default::default(),
+            pending_tasks: Default::default(),
             schedule_entities: Default::default(),
             scheduler,
             id_alloc: 0,
@@ -207,14 +207,14 @@ impl<E: Engine> Scheduler<E> {
     }
 
     fn dequeue_task(&mut self, cid: u64) -> Task {
-        let task = self.pending_task.remove(&cid).unwrap();
+        let task = self.pending_tasks.remove(&cid).unwrap();
         assert_eq!(task.cid, cid);
         task
     }
 
     fn enqueue_task(&mut self, task: Task, entity: SchedEntity) {
         let cid = task.cid;
-        if self.pending_task.insert(cid, task).is_some() {
+        if self.pending_tasks.insert(cid, task).is_some() {
             panic!("command cid={} shouldn't exist", cid);
         }
         self.running_write_bytes += entity.write_bytes;
@@ -223,7 +223,7 @@ impl<E: Engine> Scheduler<E> {
         }
 
         SCHED_WRITING_BYTES_GAUGE.set(self.running_write_bytes as i64);
-        SCHED_CONTEX_GAUGE.set(self.pending_task.len() as i64);
+        SCHED_CONTEX_GAUGE.set(self.pending_tasks.len() as i64);
     }
 
     fn dequeue_schedule_entity(&mut self, cid: u64) -> SchedEntity {
@@ -231,7 +231,7 @@ impl<E: Engine> Scheduler<E> {
 
         self.running_write_bytes -= entity.write_bytes;
         SCHED_WRITING_BYTES_GAUGE.set(self.running_write_bytes as i64);
-        SCHED_CONTEX_GAUGE.set(self.pending_task.len() as i64);
+        SCHED_CONTEX_GAUGE.set(self.pending_tasks.len() as i64);
 
         entity
     }
