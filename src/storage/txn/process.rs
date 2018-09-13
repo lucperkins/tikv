@@ -152,9 +152,7 @@ impl<E: Engine> Executor<E> {
         self.pool.take().unwrap()
     }
 
-    /// Event handler for the completion of get snapshot.
-    ///
-    /// Delivers the command along with the snapshot to a worker thread to execute.
+    /// Start the execution of the task.
     pub fn execute(mut self, cb_ctx: CbContext, snapshot: EngineResult<E::Snap>, task: Task) {
         debug!(
             "receive snapshot finish msg for cid={}, cb_ctx={:?}",
@@ -231,7 +229,7 @@ impl<E: Engine> Executor<E> {
     }
 
     /// Processes a read command within a worker thread, then posts `ReadFinished` message back to the
-    /// event loop.
+    /// `Scheduler`.
     fn process_read(
         mut self,
         sched_ctx: &mut SchedContext<E>,
@@ -251,8 +249,8 @@ impl<E: Engine> Executor<E> {
         statistics
     }
 
-    /// Processes a write command within a worker thread, then posts either a `WritePrepareFinished`
-    /// message if successful or a `WritePrepareFailed` message back to the event loop.
+    /// Processes a write command within a worker thread, then posts either a `WriteFinished`
+    /// message if successful or a `FinishedWithErr` message back to the `Scheduler`.
     fn process_write(
         mut self,
         sched_ctx: &SchedContext<E>,

@@ -104,7 +104,7 @@ struct SchedEntity {
     cb: StorageCb,
     write_bytes: usize,
     tag: &'static str,
-    // How long it waits on latch.
+    // How long it waits on latches.
     latch_timer: Option<HistogramTimer>,
     // Total duration of a command.
     _cmd_timer: HistogramTimer,
