@@ -35,6 +35,7 @@ use std::fmt::{self, Debug, Display, Formatter};
 use std::u64;
 
 use kvproto::kvrpcpb::CommandPri;
+use prometheus::HistogramTimer;
 
 use storage::engine::Result as EngineResult;
 use storage::Key;
@@ -100,9 +101,13 @@ impl Display for Msg {
 // TODO: Moves SchedEntity to Task once we adopt futures in the Engine trait.
 struct SchedEntity {
     lock: Lock,
-    write_bytes: usize,
     cb: StorageCb,
+    write_bytes: usize,
     tag: &'static str,
+    // How long it waits on latch.
+    latch_timer: Option<HistogramTimer>,
+    // Total duration of a command.
+    _cmd_timer: HistogramTimer,
 }
 
 impl SchedEntity {
@@ -118,7 +123,19 @@ impl SchedEntity {
             cb,
             write_bytes,
             tag: cmd.tag(),
+            latch_timer: Some(
+                SCHED_LATCH_HISTOGRAM_VEC
+                    .with_label_values(&[cmd.tag()])
+                    .start_coarse_timer(),
+            ),
+            _cmd_timer: SCHED_HISTOGRAM_VEC
+                .with_label_values(&[cmd.tag()])
+                .start_coarse_timer(),
         }
+    }
+
+    fn on_schedule(&mut self) {
+        self.latch_timer.take();
     }
 }
 
@@ -294,14 +311,13 @@ impl<E: Engine> Scheduler<E> {
     /// Initiates an async operation to get a snapshot from the storage engine, then posts a
     /// `SnapshotFinished` message back to the event loop when it finishes.
     fn get_snapshot(&mut self, cid: u64) {
-        let mut task = self.dequeue_task(cid);
+        let task = self.dequeue_task(cid);
         let tag = task.tag;
         let ctx = task.context().clone();
         let executor = self.fetch_executor(task.priority());
 
-        task.start();
         let cb = box move |(cb_ctx, snapshot)| {
-            task.on_snapshot_finished(cb_ctx, snapshot, executor);
+            executor.execute(cb_ctx, snapshot, task);
         };
         if let Err(e) = self.engine.async_snapshot(&ctx, cb) {
             SCHED_STAGE_COUNTER_VEC
@@ -402,7 +418,11 @@ impl<E: Engine> Scheduler<E> {
     /// Returns true if successful; returns false otherwise.
     fn acquire_lock(&mut self, cid: u64) -> bool {
         let entity = &mut self.schedule_entities.get_mut(&cid).unwrap();
-        self.latches.acquire(&mut entity.lock, cid)
+        let ok = self.latches.acquire(&mut entity.lock, cid);
+        if ok {
+            entity.on_schedule();
+        }
+        ok
     }
 
     /// Releases all the latches held by a command.
